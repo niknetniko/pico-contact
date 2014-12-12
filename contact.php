@@ -1,4 +1,7 @@
-<?php use \PHPMailer;
+<?php 
+require_once('vendor/phpmailer/phpmailer/class.phpmailer.php');
+
+use \PHPMailer;
 
 /**
  * Simple contact form for the micro CMS Pico.
@@ -31,7 +34,7 @@ class Contact {
 			return;
 		$this->contact = $settings['contact'];
 		$validate = array('name', 'mail', 'message');
-		if (isset($this->contact['captcha']) && $this->contact['captcha'] === true) {
+		if (isset($this->contact['captcha']) && isset($this->contact['key']) && $this->contact['captcha'] === true) {
 			$validate[] = 'captcha';	
 		}
 		$this->post = $settings['contact']['post'];
@@ -40,15 +43,28 @@ class Contact {
 			foreach ($validate as $value) {
 				if ($value == 'mail') {
 					if (filter_var($this->post['mail'], FILTER_VALIDATE_EMAIL) === false) {
-						$this->validation[$value] = isset($this->contact['validation_messages']['invalid_mail']) ? sprintf($this->contact['validation_messages']['invalid_mail'], $value) : "A valid {$value} i required.";;
+						$this->validation[$value] = isset($this->contact['validation_messages']['invalid_mail']) ? sprintf($this->contact['validation_messages']['invalid_mail'], $value) : "<li>Een geldige {$value} e-mail is vereist.</li>";;
 					}
 				}
-				if (empty($this->post[$value])) {
-					$this->validation[$value] = isset($this->contact['validation_messages']['required']) ? sprintf($this->contact['validation_messages']['required'], $value) : "The {$value}-field is required.";
+				if ($value != 'captcha' && empty($this->post[$value])) {
+					$this->validation[$value] = isset($this->contact['validation_messages']['required']) ? sprintf($this->contact['validation_messages']['required'], $value) : "<li>Het veld {$value} is vereist.</li>";
 				}
+				
 				if ($value == 'captcha') {
-					 if (isset($_SESSION['phrase']) && isset($this->post[$value]) && $_SESSION['phrase'] != $this->post[$value] ) {
-						$this->validation[$value] = isset($this->contact['validation_messages']['captcha']) ? sprintf($this->contact['validation_messages']['captcha'], $value) : "Captcha Input does not match.";
+					$response = $this->post['g-recaptcha-response'];
+					$key = $this->contact['key'];
+					$ip = $_SERVER['REMOTE_ADDR'];
+					$url = 'https://www.google.com/recaptcha/api/siteverify';
+					
+					$data = array( 'secret' => "$key",
+									'response' => "$response",
+									'remoteip' => "$ip"
+								);
+					
+					$decoded = json_decode($this->call_api($url, $data), true);
+					
+					if (!$decoded["success"]) {
+						$this->validation[$value] = isset($this->contact['validation_messages']['captcha']) ? sprintf($this->contact['validation_messages']['captcha'], $value) : "<li>De captcha is ongeldig.</li>";
 					}
 				}
 			}
@@ -82,7 +98,7 @@ class Contact {
 			
 			if(!$mail->send()) {
 				// Try to use SMTP if you'll get here.
-				$this->error = isset($mail->validationInfo) ? $mail->validationInfo : 'Unknown mailing error.';
+				$this->error = isset($mail->validationInfo) ? $mail->validationInfo : 'Onbekende fout.';
 			} else {
 				$this->post = false;
 				$this->message = true;
@@ -103,16 +119,16 @@ class Contact {
 					}
 				}
 			if ($validation) {
-				$message = isset($this->contact['alert_messages']['validation_error']) ? $this->contact['alert_messages']['validation_error'] : '<div class="alert alert-danger"><h4>Validation Failed!</h4><p>%1$s</p></div>';
+				$message = isset($this->contact['alert_messages']['validation_error']) ? $this->contact['alert_messages']['validation_error'] : '<div class="warning alert">Er is nog iets mis met uw bericht:<ul class="disc">%1$s</ul></div>';
 				$content = preg_replace('/'.CONTACT_MESSAGE.'/ms', sprintf($message, $validation), $content);
 			}
 		}
 		if ($this->message) {
-			$message = isset($this->contact['alert_messages']['success']) ? $this->contact['alert_messages']['success'] : '<div class="alert alert-success"><h2>Thanks for your message!</h2><p>I will reply as soon as possible.</p></div>';
+			$message = isset($this->contact['alert_messages']['success']) ? $this->contact['alert_messages']['success'] : '<div class="success alert">Uw bericht is verzonden. We nemen zo snel mogelijk contact met u op.</div>';
 			$content = preg_replace('/'.CONTACT_MESSAGE.'/ms', $message, $content);
 		}
 		if ($this->error) {
-			$message = isset($this->contact['alert_messages']['error']) ? $this->contact['alert_messages']['error'] : '<div class="alert alert-danger"><h2>Whops, error!</h2><p>Your message could not be sent. Sorry. %1$s</p></div>';
+			$message = isset($this->contact['alert_messages']['error']) ? $this->contact['alert_messages']['error'] : '<div class="danger alert">Oh nee! Uw bericht kon verzonden worden: %1$s</p></div>';
 			$content = preg_replace('/'.CONTACT_MESSAGE.'/ms', sprintf($message, $this->error), $content);
 		}
 		// User input.
@@ -127,4 +143,18 @@ class Contact {
 		}
 	}
 
+	private function call_api($url, $data) {
+		$curl = curl_init();
+
+        $url = sprintf("%s?%s", $url, http_build_query($data));
+	
+		curl_setopt($curl, CURLOPT_URL, $url);
+		curl_setopt($curl, CURLOPT_RETURNTRANSFER, 1);
+
+		$result = curl_exec($curl);
+
+		curl_close($curl);
+
+		return $result;
+	}
 }
