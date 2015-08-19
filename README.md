@@ -1,3 +1,5 @@
+Note: this is a repo for a personal project and should not be used by others.
+
 A simple contact form for the micro CMS Pico
 =====================
 You may find more info on [gidlov.com/code/pico_contact](http://gidlov.com/code/pico_contact)
